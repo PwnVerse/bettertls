@@ -4,10 +4,19 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"strings"
 )
 
 func main() {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "Panic: %v\n", r)
+			fmt.Fprintf(os.Stderr, "Stack trace:\n%s\n", debug.Stack())
+			os.Exit(1)
+		}
+	}()
+
 	subcommands := map[string]func([]string) error{
 		"server":             runServer,
 		"get-test":           getTest,
@@ -31,7 +40,7 @@ func main() {
 		return
 	}
 
-	err := subcommand((os.Args[2:]))
+	err := subcommand(os.Args[2:])
 	if err != nil && err != flag.ErrHelp {
 		panic(err)
 	}

@@ -7,12 +7,14 @@ import (
 )
 
 type ExecutionContext struct {
-	OnStartSuite  func(suite string, testCount uint)
-	OnStartTest   func(idx uint)
-	OnFinishTest  func(idx uint)
-	OnFinishSuite func(suite string)
-	RunOnlySuite  string
-	RunOnlyTests  *int_set.IntSet
+    OnStartSuite   func(suite string, testCount uint)
+    OnStartTest    func(idx uint)
+    OnFinishTest   func(idx uint)
+    OnFinishSuite  func(suite string)
+    RunOnlySuite   string
+    RunOnlyTests   *int_set.IntSet
+    OnTestStart    func(idx uint)
+    OnTestEnd      func(idx uint)
 }
 
 func ExecuteAllTestsLocal(ctx *ExecutionContext, suites *TestSuites, execTest func(hostname string, certificates [][]byte) (bool, error)) (map[string]*SuiteTestResults, error) {
@@ -60,7 +62,7 @@ func executeTestsForProvider(ctx *ExecutionContext, provider test_case.TestCaseP
 	execTestCase := func(idx uint, testCase test_case.TestCase) (TestCaseResult, error) {
 		result, err := execTest(idx, testCase)
 		if err != nil {
-			return TestCaseResult_ACCEPTED, err
+			return TestCaseResult_ACCEPTED, fmt.Errorf("test case %d failed: %v", idx, err)
 		}
 		if result {
 			return TestCaseResult_ACCEPTED, nil
@@ -89,18 +91,23 @@ func executeTestsForProvider(ctx *ExecutionContext, provider test_case.TestCaseP
 
 	sanityCheckTestCaseId, err := provider.GetSanityCheckTestCase()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get sanity check test case ID: %v", err)
 	}
+
 	sanityCheckTestCase, err := provider.GetTestCase(sanityCheckTestCaseId)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get sanity check test case for ID %d: %v", 
+			sanityCheckTestCaseId, err)
 	}
+
 	sanityCheckResult, err := execTestCase(sanityCheckTestCaseId, sanityCheckTestCase)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to execute sanity check test case: %v", err)
 	}
+
 	if !matchesExpected(sanityCheckResult, sanityCheckTestCase.ExpectedResult()) {
-		return nil, fmt.Errorf("sanity check failed")
+		return nil, fmt.Errorf("sanity check failed: got result %v but expected %v for test case %d", 
+			sanityCheckResult, sanityCheckTestCase.ExpectedResult(), sanityCheckTestCaseId)
 	}
 
 	allFeatures := provider.GetFeatures()
@@ -137,6 +144,9 @@ func executeTestsForProvider(ctx *ExecutionContext, provider test_case.TestCaseP
 		if ctx != nil && ctx.OnStartTest != nil {
 			ctx.OnStartTest(idx)
 		}
+		if ctx != nil && ctx.OnTestStart != nil {
+			ctx.OnTestStart(idx)
+		}
 		testCase, err := provider.GetTestCase(idx)
 		if err != nil {
 			return nil, err
@@ -159,6 +169,10 @@ func executeTestsForProvider(ctx *ExecutionContext, provider test_case.TestCaseP
 			return nil, err
 		}
 		results[idx] = testResult
+
+		if ctx != nil && ctx.OnTestEnd != nil {
+			ctx.OnTestEnd(idx)
+		}
 
 		if ctx != nil && ctx.OnFinishTest != nil {
 			ctx.OnFinishTest(idx)
